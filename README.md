@@ -97,7 +97,10 @@ We evaluated both colorization models on a **held-out test set of 36 patches** (
 | **PSNR ↑** | **32.60 dB** | 13.72 dB | Higher is better. > 30 dB is "good quality". |
 | **SSIM ↑** | **0.8845** | 0.5130 | Higher is better. 1.0 is perfect. |
 | **RMSE ↓** | **0.0251** | 0.2213 | Lower is better. Measures pixel-level error. |
+| **FID ↓** | **157.08** | 312.91 | Lower is better. Measures distributional realism. |
 | **Test Samples** | 36 | 36 | Same held-out split used for both. |
+
+> ⚠️ **FID Statistical Note:** FID is designed to be computed over at least **2,048 images**. Our test set of 36 patches produces an unreliable FID estimate with high variance. These scores should be interpreted as directional indicators only (SPADE ≈ 2× closer to the real image distribution than ControlNet), not as absolute values. A full-scale FID evaluation would require the complete ~3,500-sample dataset.
 
 ### Interpretation & Analysis
 
