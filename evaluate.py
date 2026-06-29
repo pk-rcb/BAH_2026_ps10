@@ -273,7 +273,7 @@ if __name__ == "__main__":
     parser.add_argument("--sr_weights",     type=str, default="weights/best_sr_model.pth")
     parser.add_argument("--color_weights",  type=str, default="weights/best_spade_color_model.pth",
                         help="Path to SPADE weights")
-    parser.add_argument("--controlnet_dir", type=str, default="weights/controlnet_color",
+    parser.add_argument("--controlnet_dir", type=str, default="weights/controlnet",
                         help="Path to saved ControlNet adapter")
     parser.add_argument("--model_id",       type=str, default="runwayml/stable-diffusion-v1-5",
                         help="HuggingFace model ID for diffusion backbone")

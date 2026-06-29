@@ -126,7 +126,7 @@ if __name__ == '__main__':
     parser.add_argument('--input_dir', type=str, default='output/downscaled_data')
     parser.add_argument('--sr_weights', type=str, default='weights/best_sr_model.pth')
     parser.add_argument('--spade_weights', type=str, default='weights/best_spade_color_model.pth')
-    parser.add_argument('--controlnet_dir', type=str, default='weights/controlnet_color')
+    parser.add_argument('--controlnet_dir', type=str, default='weights/controlnet')
     parser.add_argument('--model_id', type=str, default='runwayml/stable-diffusion-v1-5')
     args, unknown = parser.parse_known_args()
     visualize_test(args)
