@@ -30,27 +30,40 @@ To allow our colorization models to "understand" the landscape, we extract struc
 
 ---
 
-## 🧠 2. Deep Dive: Model Architectures
+## 🧠 2. Deep Learning Architecture Deep-Dive
 
-We decoupled the problem into two distinct tasks to maximize performance.
+Thermal-to-RGB translation is a heavily ill-posed problem. A hot asphalt road and a hot tin roof look identical in a single thermal band, yet require vastly different textures and colors in the RGB domain. To solve this, we decoupled the problem into two distinct deep learning tasks: **Spatial Reconstruction** and **Semantic Colorization**.
 
-### Stage 1: Super-Resolution (SwinIR)
-- **Model:** `models.py` (SwinIR)
-- **Why?** Traditional CNNs struggle with the heavy blurring present in 200m thermal data. SwinIR uses **Windowed Self-Attention (Transformers)** to capture long-range dependencies, allowing it to accurately reconstruct sharp edges (e.g., roads, coastlines) at the 100m scale.
-- **Training:** `train_sr.py` trains the network to map `tir_200m` → `tir_100m` using a combined L1 (Charbonnier) + SSIM loss to preserve structural integrity.
+### Stage 1: Spatial Reconstruction via SwinIR
+- **The Problem:** 200m thermal imagery lacks the structural fidelity needed for colorization. Simple bicubic upsampling creates blurry, unusable artifacts.
+- **The Architecture:** We utilized **SwinIR** (Swin Transformer for Image Restoration). Unlike traditional CNNs (like SRCNN or ESPCN) which are limited by small receptive fields, SwinIR uses **Windowed Self-Attention**.
+- **How it works:** 
+  - **Shallow Feature Extraction:** Initial convolutional layers extract low-frequency spatial priors.
+  - **Deep Feature Extraction (RSTB):** Residual Swin Transformer Blocks compute self-attention within local windows (e.g., 8x8 patches). To ensure features bleed across window boundaries, it utilizes a **Shifted Window** mechanism in alternating layers. This allows the network to model long-range structural dependencies (like a river cutting across a city) while maintaining computational efficiency.
+  - **Upsample Module:** A sub-pixel convolution (PixelShuffle) layer reorganizes the deep features into a sharp 100m output.
+- **Loss Function:** We train SwinIR using a combination of **Charbonnier Loss** (a differentiable L1 loss that prevents oversmoothing) and **SSIM Loss** (Structural Similarity Index) to ensure edges are preserved.
 
 ### Stage 2: Colorization (Two Experimental Paths)
-Once we have sharp 100m thermal data, we must hallucinate the RGB colors. Because thermal-to-RGB is heavily ill-posed (e.g., a hot roof and a hot parking lot look identical in thermal but are different colors), we provide two distinct solutions:
+Once the 100m thermal image is reconstructed, we must hallucinate the RGB colors. We implemented two distinct Generative AI solutions.
 
 #### Option A: SPADE (Spatially-Adaptive Normalization)
-- **Model:** `SPADEGenerator` (Based on NVIDIA's GauGAN)
-- **Approach:** We feed the model the thermal image, but we modulate the convolutional layers using the **K-Means semantic mask** we generated earlier. This prevents the "muddy brown" bleeding effect common in simple GANs by forcing the network to respect the semantic boundaries (water stays blue, vegetation stays green).
-- **Training:** `train_colorization.py`
+- **The Problem with Standard GANs:** Standard conditional GANs (like Pix2Pix) wash out spatial information when passing features through bottleneck layers.
+- **The SPADE Architecture:** Based on NVIDIA's GauGAN, SPADE fundamentally changes how normalization layers work. Instead of normalizing feature maps blindly (like BatchNorm or InstanceNorm), SPADE learns an affine transformation (scale and bias) that is **spatially dependent on our K-Means semantic mask**.
+- **How it works:** 
+  - The thermal image is passed through a deep encoder.
+  - At every layer of the decoder, the K-Means semantic mask (water, vegetation, urban) is injected via a SPADE block. 
+  - If a pixel is marked as "water" in the mask, the SPADE block modulates the activations to ensure the generator outputs blue, rippling textures, regardless of the thermal intensity.
+- **Adversarial Training:** We train the Generator against a Multi-Scale PatchGAN Discriminator using Feature Matching Loss and Perceptual (VGG) Loss to guarantee photorealism.
 
 #### Option B: ControlNet (Latent Diffusion)
-- **Model:** `StableDiffusionControlNetPipeline`
-- **Approach:** We freeze a massive pre-trained Stable Diffusion v1.5 model and train a lightweight **ControlNet** adapter. The ControlNet is conditioned on the **Canny Edge map** of the thermal image. This allows the diffusion model to inject hyper-realistic photographic textures (trees, waves, asphalt) while strictly adhering to the geographic structure of the thermal image.
-- **Training:** `train_controlnet.py`
+- **The Problem:** GANs are fast but often suffer from mode collapse and repetitive textures.
+- **The ControlNet Architecture:** We utilize **Stable Diffusion v1.5**, a massive pre-trained latent diffusion model containing billions of parameters trained on real-world imagery. To force Stable Diffusion to adhere to our satellite data, we use a **ControlNet Adapter**.
+- **How it works:** 
+  - We freeze the weights of the Stable Diffusion U-Net.
+  - We create a trainable copy of the encoding layers (the ControlNet).
+  - We feed the **Canny Edge Map** (extracted from the thermal image) into the ControlNet.
+  - The ControlNet uses **Zero-Convolutions** (initialized to zero so they don't break the pre-trained model initially) to inject the edge structures into the frozen U-Net.
+- **Result:** The diffusion model hallucinates ultra-realistic photographic textures (individual trees, complex waves, realistic asphalt) but is strictly bounded by the edge geometry of the thermal image.
 
 ---
 
@@ -65,6 +78,12 @@ If you want to review the code or run the pipeline, here is a quick map of the r
 * `train_colorization.py`: Trains the Stage 2 SPADE GAN model.
 * `train_controlnet.py`: Trains the Stage 2 ControlNet adapter.
 * `inference.py`: **The final evaluation script.** Takes raw 200m `.tif` files, runs them through the full 2-stage pipeline, and outputs BGR `.tif` files exactly as required by the problem statement.
+
+### Quick Testing
+If you are evaluating the code inside a Colab or Jupyter environment and want to visualize the outputs interactively:
+* **`colab_quick_test.py`**: A standalone script you can paste into any notebook. It allows you to upload a thermal `.tif` or `.npy` file, runs it through SwinIR + SPADE + ControlNet (if weights are present), and renders a beautiful side-by-side Matplotlib comparison on the screen!
+
+---
 
 ### Environment Variables
 To run the data fetching scripts yourself, you must rename `.env.example` to `.env` and insert your own Google Earth Engine Project ID.
