@@ -21,6 +21,19 @@ def calculate_psnr(img1, img2):
     psnr = 20 * math.log10(max_pixel / math.sqrt(mse))
     return psnr
 
+def calculate_rmse(img1, img2):
+    """
+    Calculates RMSE (Root Mean Square Error).
+    Expects input tensors in the range [-1, 1] or [0, 1].
+    """
+    # Normalize to [0, 1] if they are in [-1, 1]
+    if img1.min() < 0 or img2.min() < 0:
+        img1 = (img1 + 1.0) / 2.0
+        img2 = (img2 + 1.0) / 2.0
+        
+    mse = torch.mean((img1 - img2) ** 2)
+    return math.sqrt(mse)
+
 def calculate_ssim_metric(img1, img2):
     """
     Calculates SSIM.

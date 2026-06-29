@@ -77,7 +77,8 @@ If you want to review the code or run the pipeline, here is a quick map of the r
 * `train_sr.py`: Trains the Stage 1 Super-Resolution model.
 * `train_colorization.py`: Trains the Stage 2 SPADE GAN model.
 * `train_controlnet.py`: Trains the Stage 2 ControlNet adapter.
-* `inference.py`: **The final evaluation script.** Takes raw 200m `.tif` files, runs them through the full 2-stage pipeline, and outputs BGR `.tif` files exactly as required by the problem statement.
+* `inference.py`: **Inference for SR + SPADE.** Takes raw 200m `.tif` files, runs them through the SwinIR + SPADE pipeline, and outputs BGR `.tif` files.
+* `inference_diffusion.py`: **Inference for SR + Diffusion.** Takes raw 200m `.tif` files, runs them through the SwinIR + ControlNet pipeline, and outputs BGR `.tif` files.
 
 ### Quick Testing
 If you are evaluating the code inside a Colab or Jupyter environment and want to visualize the outputs interactively:
