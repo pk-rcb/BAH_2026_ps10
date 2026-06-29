@@ -4,47 +4,68 @@ import os
 import argparse
 import logging
 
+# Setup basic logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def download_landsat_data(product_id, bands, start_date, end_date, output_path, ee_project_id=None):
+def download_by_location(product_id, bands, start_date, end_date, output_path, lat, lon, ee_project_id=None):
+    # Initialize Earth Engine
     if ee_project_id:
         ee.Initialize(project=ee_project_id)
     else:
         ee.Initialize()
 
+    # Define a 30km x 30km area of interest (ROI) around the provided Lat/Lon
+    point = ee.Geometry.Point([lon, lat])
+    roi = point.buffer(15000).bounds()
+
+    # Fetch Landsat 9 and filter by Cloud Cover (Top priority)
     collection = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2') \
         .filterDate(start_date, end_date) \
-        .filterMetadata('WRS_PATH', 'equals', 20) \
-        .filterMetadata('WRS_ROW', 'equals', 30) \
+        .filterBounds(roi) \
+        .filter(ee.Filter.lt('CLOUD_COVER', 5)) \
+        .sort('CLOUD_COVER') \
         .select(bands)
 
     image = collection.first()
 
     if image:
-        logger.info(f'Attempting to download image for product ID: {product_id} with bands {bands} to {output_path}')
+        logger.info(f"Found clear image for {product_id}. Downloading...")
         os.makedirs(output_path, exist_ok=True)
-        filename_prefix = f'landsat9_{product_id}'
-
-        try:
-            geemap.ee_export_image(image, output_path, scale=30, region=image.geometry().bounds(), file_per_band=True, filename_prefix=filename_prefix)
-            logger.info(f'Individual band images successfully downloaded to {output_path}')
-        except Exception as e:
-            logger.error(f"Error during direct download using geemap: {e}")
-            logger.error("Please ensure 'geemap' is installed, Earth Engine is authenticated, and check your quota or image region bounds.")
+        
+        # Export the area
+        output_filepath = os.path.join(output_path, f'{product_id}.tif')
+        geemap.ee_export_image(
+            image, 
+            filename=output_filepath, 
+            scale=30, 
+            region=roi, 
+            file_per_band=True
+        )
+        logger.info(f"Download complete: {output_filepath}")
     else:
-        logger.warning(f'No image found for product ID: {product_id} in the specified date range/location.')
+        logger.warning(f"No clear image (clouds < 5%) found for {product_id} at ({lat}, {lon}). Try increasing the date range.")
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Download Landsat 9 data using Earth Engine and geemap.')
-    parser.add_argument('product_id', type=str, help='Unique ID for the product.')
-    parser.add_argument('bands', type=str, help='Comma-separated list of bands to download (e.g., SR_B2,SR_B3,SR_B4,ST_B10,ST_B11).')
-    parser.add_argument('start_date', type=str, help='Start date for filtering (YYYY-MM-DD).')
-    parser.add_argument('end_date', type=str, help='End date for filtering (YYYY-MM-DD).')
-    parser.add_argument('output_path', type=str, help='Local path to save downloaded bands.')
-    parser.add_argument('--ee_project_id', type=str, default=None, help='Google Earth Engine project ID.')
+    parser = argparse.ArgumentParser(description='Download Landsat 9 by Lat/Lon.')
+    parser.add_argument('product_id', type=str)
+    parser.add_argument('lat', type=float)
+    parser.add_argument('lon', type=float)
+    parser.add_argument('--bands', default="SR_B2,SR_B3,SR_B4,ST_B10")
+    parser.add_argument('--start_date', default="2023-01-01")
+    parser.add_argument('--end_date', default="2023-12-31")
+    parser.add_argument('--output_path', default="./input")
+    parser.add_argument('--ee_project_id', type=str)
 
     args = parser.parse_args()
-
-    bands_list = args.bands.split(',')
-    logger.info("Ensure 'geemap' is installed (`pip install geemap`) and Earth Engine is authenticated (`ee.Authenticate()`, `ee.Initialize()`).")
-    download_landsat_data(args.product_id, bands_list, args.start_date, args.end_date, args.output_path, args.ee_project_id)
+    
+    download_by_location(
+        args.product_id, 
+        args.bands.split(','), 
+        args.start_date, 
+        args.end_date, 
+        args.output_path, 
+        args.lat, 
+        args.lon, 
+        args.ee_project_id
+    )

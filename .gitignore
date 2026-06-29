@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Models & Weights
+weights/
+*.pth
+*.pt
+*.safetensors
+
+# Data & Output
+output/
+input/
+*.npy
+*.tif
+*.tiff
+*.zip
+
+# Colab / Environments
+.ipynb_checkpoints/
+.env
+venv/
+env/
+.venv/
+
+# IDEs
+.vscode/
+.idea/

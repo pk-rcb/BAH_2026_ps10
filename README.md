@@ -1,144 +1,76 @@
-# 🚀 Bhartiya Antriksh Hackathon (BAH) 2026
+# Thermal-to-RGB Colorization Pipeline (BAH 2026)
 
-## Problem Statement: Infrared Image Colorization and Enhancement for Improved Object Interpretation
+Welcome to our hackathon submission! This repository contains a full end-to-end pipeline for converting **200m coarse Thermal Infrared (TIR) satellite imagery** into **100m high-resolution colorized (RGB) imagery**. 
 
-Welcome to the **Bhartiya Antriksh Hackathon 2026**! This repository provides a baseline implementation and technical guidelines for the challenge of transforming raw Thermal Infrared (TIR) satellite imagery into interpretable, colorized visual representations.
-
----
-
-## The Challenge
-
-Thermal Infrared (TIR) data is invaluable for monitoring wildfires, urban heat islands, and volcanic activity. However, raw TIR imagery is typically single-band (grayscale) and lacks the intuitive detail of RGB imagery, making object interpretation difficult for human analysts.
-
-**Your Goal:** Develop a computational pipeline and machine learning model that produces two primary outputs:
-1. **A Super-Resolved TIR Image**: Increase the spatial resolution of raw TIR imagery to recover critical structural details.
-2. **A Colorized TIR Image**: Synthesize realistic colors for the TIR data, using multi-spectral RGB data as a guide.
+We tackle this challenge using a novel **Two-Stage Architecture**:
+1. **Super-Resolution (SwinIR):** Recovers fine spatial details to upscale the 200m thermal signal to 100m.
+2. **Colorization (SPADE / ControlNet):** Maps the single-channel 100m thermal data into a 3-channel realistic RGB image using semantic conditioning.
 
 ---
 
-## Data Acquisition
+## 🏗️ 1. Data Fetching & Preparation
 
-### Data Specifications
-On the USGS Earth Explorer site, all Landsat 9 bands (B2, B3, B4, and B10) are registered and provided at a **30m resolution**. However, it is important to note that the original spatial resolution of the TIR band (B10) is **100m**, while the RGB bands (B2, B3, B4) are natively **30m**.
+Our training pipeline relies on aligned historical Thermal (ST) and Optical (SR) bands.
 
-To get started, you will need Landsat 9 imagery.
+### Fetching Data from Earth Engine
+- **Source:** We curated a list of diverse Indian cities and geographies in `cities.csv`.
+- **Retrieval (`fetch_cities.py`):** Uses Google Earth Engine (GEE) to automatically pull aligned Landsat/Sentinel tiles for these coordinates.
+- **Output:** Raw `.tif` files containing both the optical Surface Reflectance (SR) bands and Surface Temperature (ST) bands at their native resolutions.
 
-### Quick Start (Demo Data)
-Use the provided bash script to download sample bands into `input/demo_product/`:
-```bash
-chmod +x scripts/download_data.sh
-./scripts/download_data.sh
-```
+### Data Prep & Downscaling
+Since the problem statement requires moving from 200m to 100m, we simulate this by downscaling our ground-truth data:
+- **`scripts/downscale.py`:** Applies rigorous anti-aliased downsampling to create authentic 200m degraded inputs from 100m ground truth.
+- **`scripts/create_patches.py`:** Processes the massive raw `.tif` swaths into manageable, aligned `numpy` arrays (`tir_200m.npy`, `tir_100m.npy`, `rgb_100m.npy`) grouped by geography.
 
-### Custom Downloads (Google Earth Engine)
-Use `scripts/download.py` to fetch specific bands using GEE:
-```bash
-python scripts/download.py <product_id> <bands> <start_date> <end_date> <output_path> --ee_project_id <your_project_id>
-```
-
-### Custom Downloads (USGS Earth Explorer)
-You may also download data directly from [USGS Earth Explorer](https://earthexplorer.usgs.gov/); please ensure it is placed in the `input` directory following the structure below.
-
-### Required Input Directory Structure
-To ensure the baseline scripts function correctly, please organize your data as follows:
-```
-input/
-└── <folder_name>/
-    ├── <file_prefix>_B10.TIF
-    ├── <file_prefix>_B2.TIF
-    ├── <file_prefix>_B3.TIF
-    └── <file_prefix>_B4.TIF
-```
-*Note: While `<folder_name>` can be any identifier of your choice, the files inside must end with the specified band suffixes (`_B10.TIF`, `_B2.TIF`, `_B3.TIF`, `_B4.TIF`) to be correctly processed by the pipeline.*
+### Enrichment (Masks & Edges)
+To allow our colorization models to "understand" the landscape, we extract structural priors from the 100m thermal data:
+- **`scripts/enrich_patches.py`:** 
+  - Generates **K-Means Semantic Masks (K=4)**: Automatically clusters the thermal signature into 4 semantic classes (water, vegetation, urban, bare rock) to constrain the SPADE model.
+  - Generates **Canny Edge Maps**: Extracts structural gradients to condition the ControlNet diffusion model.
 
 ---
 
-## Baseline Implementation: Dataset Generation
+## 🧠 2. Deep Dive: Model Architectures
 
-This baseline focuses on the most critical part of the pipeline: **creating co-registered training pairs**.
+We decoupled the problem into two distinct tasks to maximize performance.
 
-### Dataset Generation Workflow
-Run the driver script to generate multi-resolution, spatially aligned patches:
-```bash
-python driver.py
-```
+### Stage 1: Super-Resolution (SwinIR)
+- **Model:** `models.py` (SwinIR)
+- **Why?** Traditional CNNs struggle with the heavy blurring present in 200m thermal data. SwinIR uses **Windowed Self-Attention (Transformers)** to capture long-range dependencies, allowing it to accurately reconstruct sharp edges (e.g., roads, coastlines) at the 100m scale.
+- **Training:** `train_sr.py` trains the network to map `tir_200m` → `tir_100m` using a combined L1 (Charbonnier) + SSIM loss to preserve structural integrity.
 
-**Pipeline Details:**
-1. **Merge**: Optical bands (B2, B3, B4) are merged into a 30m RGB image.
-2. **Downscale**: The baseline takes the 30m resampled USGS data and downscales it to create training pairs:
-   - **Input**: All bands are processed from their 30m resampled versions.
-   - **Rescaling Factors**:
-     - RGB (30m) $\xrightarrow{\times 3.33}$ 100m
-     - TIR (30m) $\xrightarrow{\times 3.33}$ 100m
-     - TIR (30m) $\xrightarrow{\times 6.67}$ 200m
-   - **Data Flow**: For the Super-Resolution task, the TIR band is downsampled to 200m as input, with the objective of recovering a 100m output.
-3. **Extract Co-registered Patches**:
-   - **SR Pair**: 256x256 (200m TIR) $\rightarrow$ 512x512 (100m TIR).
-   - **Colorization Pair**: 256x256 (100m TIR) $\rightarrow$ 256x256 (100m RGB).
-4. **Save Output**: Both `.npy` (for training) and `.png` (for verification) files are saved in `output/patches/`.
-   - ⚠️ **Important**: Do **not** train your models on the `.png` files. `.png` files are intended for visualization purposes only. For training, use the `.npy` files to maintain the original radiometric resolution of the data.
+### Stage 2: Colorization (Two Experimental Paths)
+Once we have sharp 100m thermal data, we must hallucinate the RGB colors. Because thermal-to-RGB is heavily ill-posed (e.g., a hot roof and a hot parking lot look identical in thermal but are different colors), we provide two distinct solutions:
 
-### Technical Alignment
-The baseline ensures strict spatial co-registration:
-- One pixel in the 200m TIR image corresponds exactly to a 2x2 block in the 100m TIR/RGB images.
-- All patches are extracted using the same top-left offset to maintain alignment across resolutions.
+#### Option A: SPADE (Spatially-Adaptive Normalization)
+- **Model:** `SPADEGenerator` (Based on NVIDIA's GauGAN)
+- **Approach:** We feed the model the thermal image, but we modulate the convolutional layers using the **K-Means semantic mask** we generated earlier. This prevents the "muddy brown" bleeding effect common in simple GANs by forcing the network to respect the semantic boundaries (water stays blue, vegetation stays green).
+- **Training:** `train_colorization.py`
+
+#### Option B: ControlNet (Latent Diffusion)
+- **Model:** `StableDiffusionControlNetPipeline`
+- **Approach:** We freeze a massive pre-trained Stable Diffusion v1.5 model and train a lightweight **ControlNet** adapter. The ControlNet is conditioned on the **Canny Edge map** of the thermal image. This allows the diffusion model to inject hyper-realistic photographic textures (trees, waves, asphalt) while strictly adhering to the geographic structure of the thermal image.
+- **Training:** `train_controlnet.py`
 
 ---
 
-## Conceptual Workflow
+## 🗺️ 3. Codebase Navigation Guide for Judges
 
-The following diagram illustrates the end-to-end process for dataset generation. While we provide a baseline, these are **suggested approaches**. You are encouraged to explore alternative workflows for better structural accuracy or design entirely new pipelines to achieve the objectives.
+If you want to review the code or run the pipeline, here is a quick map of the repository:
 
-```mermaid
-graph TD
-    A[Start: Raw Data Source] --> B(Download Landsat 9 Bands: B2, B3, B4, B10 - 30m)
-    
-    B --> C1(Merge B2, B3, B4 into RGB Image - 30m)
-    B --> C2(Downscale TIR B10 by 3.33x - 100m)
-    B --> C3(Downscale TIR B10 by 6.67x - 200m)
-    
-    C1 --> D(Downscale RGB by 3.33x - 100m)
-    
-    D --> E1(Create Image Patches: 100m RGB & 100m TIR)
-    C2 --> E2(Create Image Patches: 100m TIR & 200m TIR)
-    C3 --> E2
-```
+### Core Pipeline
+* `dataset.py`: Handles complex dynamic cropping, pairing, and global min/max radiometric normalization.
+* `models.py`: Contains the raw PyTorch architectures for SwinIR and SPADE.
+* `train_sr.py`: Trains the Stage 1 Super-Resolution model.
+* `train_colorization.py`: Trains the Stage 2 SPADE GAN model.
+* `train_controlnet.py`: Trains the Stage 2 ControlNet adapter.
+* `inference.py`: **The final evaluation script.** Takes raw 200m `.tif` files, runs them through the full 2-stage pipeline, and outputs BGR `.tif` files exactly as required by the problem statement.
 
-## Expected Pipeline and Output Format
+### Environment Variables
+To run the data fetching scripts yourself, you must rename `.env.example` to `.env` and insert your own Google Earth Engine Project ID.
 
-Following the dataset generation, you are expected to implement a multi-stage model pipeline.
-
-**Inference Flow:**
-For the entire pipeline during inference, the input will be the **200m resolution TIR band (B10)**. The pipeline is expected to produce the two outputs detailed below.
-
-1. **Super-Resolution Stage**: Develop a model to generate high-resolution (100m) TIR images from the low-resolution (200m) inputs.
-2. **Colorization Stage**: Pass the resulting high-resolution TIR images into a colorization model to produce synthetic, interpretable RGB representations.
-
-### Mandatory Output Structure
-To ensure standardized evaluation, your final output must be organized in the `output/` directory as follows:
-
-```
-output/
-└── model_outputs/
-    ├── tir_superresolved_100m/
-    │   └── <product_id>.tif
-    └── colorized_tir_100m/
-        └── <product_id>.tif
-```
-*Note: `<product_id>` must exactly match the original input product ID.*
-
-**Band Ordering Requirement:**
-For the colorized TIR images, the output TIFF must adhere to the following channel sequence:
-- **Layer 1**: Blue
-- **Layer 2**: Green
-- **Layer 3**: Red
+### Sample Data
+Because the full raw dataset is nearly **6 GB**, we have included a single city (`Zokhawthar`) in the `sample_dataset/` folder so you can immediately see the structure of the `tir` and `rgb` numpy arrays. The full 6 GB dataset is ignored by Git to adhere to GitHub's storage limits, but is available upon request (or generated dynamically using the `fetch_cities.py` script!).
 
 ---
-
-## Submission Guidelines
-
-**Required Deliverables:**
-1. **Codebase**: A link to your GitHub repository.
-2. **Model Weights**: Your trained model weights (e.g., `.pth`, `.h5`).
-3. **Technical Report**: A PDF detailing your approach and results.
-4. **Sample Results**: A sequence of Raw TIR $\rightarrow$ Super-Resolved TIR $\rightarrow$ Colorized TIR.
+*No hardcoded API keys or credentials exist in this repository. Ensure you have installed the required libraries (`torch`, `diffusers`, `tifffile`, `opencv-python`) before running the pipeline.*

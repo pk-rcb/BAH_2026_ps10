@@ -1,8 +1,36 @@
 import os
+import shutil
 import argparse
+import numpy as np
+import tifffile
 import subprocess
 from utils.logging_utils import setup_logging
 from utils.file_utils import find_file
+
+# ── Black-patch detection ──────────────────────────────────────────────────────
+BLACK_PIXEL_THRESHOLD = 0.50   # skip city if any band has >50% zero/nodata pixels
+
+def is_mostly_black(input_dir, threshold=BLACK_PIXEL_THRESHOLD):
+    """Return True if ANY .tif in input_dir has >threshold fraction of zero pixels."""
+    tif_files = [
+        os.path.join(input_dir, f)
+        for f in os.listdir(input_dir)
+        if f.lower().endswith(('.tif', '.tiff'))
+    ]
+    if not tif_files:
+        return True  # no data at all → skip
+
+    for path in tif_files:
+        try:
+            data = tifffile.imread(path).astype(np.float32)
+            frac_zero = np.count_nonzero(data == 0) / max(data.size, 1)
+            if frac_zero > threshold:
+                return True
+        except Exception:
+            return True  # unreadable → skip
+
+    return False
+
 
 def run_script(script_name, logger, *args):
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -27,12 +55,17 @@ def run_script(script_name, logger, *args):
 
 def main():
     parser = argparse.ArgumentParser(description='IR-Colorization Dataset Generation Baseline')
-    args = parser.parse_args()
+    parser.parse_args()
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
     input_root = os.path.join(base_dir, 'input')
     output_dir = os.path.join(base_dir, 'output')
-    
+
+    # ── Clear the output folder before each run ────────────────────────────────
+    if os.path.exists(output_dir):
+        shutil.rmtree(output_dir)
+        print(f"[INFO] Cleared output directory: {output_dir}")
+
     output_downscale_dir = os.path.join(output_dir, 'downscaled_data')
     output_rgb_dir = os.path.join(output_dir, 'rgb_images')
     output_patches_dir = os.path.join(output_dir, 'patches')
@@ -48,9 +81,19 @@ def main():
 
     product_folders = [e for e in os.listdir(input_root) if os.path.isdir(os.path.join(input_root, e))]
 
+    skipped_black = 0
+    skipped_missing = 0
+    processed = 0
+
     for product_id in product_folders:
         input_dir = os.path.join(input_root, product_id)
         logger.info(f"Processing product: {product_id}")
+
+        # ── Skip folders where majority of TIF pixels are black/NoData ─────────
+        if is_mostly_black(input_dir):
+            logger.warning(f"[SKIP-BLACK] {product_id}: majority of TIF pixels are black/NoData.")
+            skipped_black += 1
+            continue
 
         band2_path = find_file(input_dir, '_B2')
         band3_path = find_file(input_dir, '_B3')
@@ -58,7 +101,8 @@ def main():
         band10_path = find_file(input_dir, '_B10')
 
         if not all([band2_path, band3_path, band4_path, band10_path]):
-            logger.warning(f"Skipping {product_id}: Missing required bands.")
+            logger.warning(f"[SKIP-MISSING] {product_id}: Missing required bands.")
+            skipped_missing += 1
             continue
 
         file_prefix = product_id
@@ -80,15 +124,20 @@ def main():
             downscaled_tir_200m = os.path.join(output_downscale_dir, f'{file_prefix}_tir_200m.tif')
             run_script('downscale.py', logger, band10_path, downscaled_tir_200m, '6.67')
 
-            # 5. Create Coregistered Patches
+            # 5. Create ONE output per city (no sliding window patches)
             run_script('create_patches.py', logger, '--input_dir', output_downscale_dir, '--output_dir', output_patches_dir)
 
-            logger.info(f"Successfully generated dataset samples for {product_id}")
+            logger.info(f"[OK] {product_id}: dataset sample saved.")
+            processed += 1
 
         except Exception as e:
             logger.error(f"Error processing {product_id}: {e}")
 
-    logger.info("Dataset generation finished. Samples available in output/patches")
+    logger.info(
+        f"Dataset generation finished. "
+        f"Processed={processed} | Skipped(black)={skipped_black} | Skipped(missing)={skipped_missing}"
+    )
+    logger.info("Samples available in output/patches")
 
 if __name__ == '__main__':
     main()
