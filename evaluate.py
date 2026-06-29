@@ -75,8 +75,8 @@ def percentile_stretch_u8(arr: np.ndarray, low: int = 2, high: int = 98) -> np.n
 def get_edge_map(tir_img: np.ndarray) -> np.ndarray:
     """Takes a (H, W) float TIR array, stretches it, runs Canny, returns (H, W, 3) edges in [0, 1]."""
     tir_u8 = percentile_stretch_u8(tir_img)
-    tir_blur = cv2.GaussianBlur(tir_u8, (3, 3), 0)
-    edges = cv2.Canny(tir_blur, threshold1=50, threshold2=150)
+    tir_blur = cv2.GaussianBlur(tir_u8, (5, 5), 0)
+    edges = cv2.Canny(tir_blur, threshold1=100, threshold2=200)
     edges = (edges / 255.0).clip(0.0, 1.0)
     return np.stack([edges, edges, edges], axis=-1)
 
@@ -190,13 +190,13 @@ def evaluate(args):
                 
                 # 2. Run diffusion
                 result = color_model(
-                    prompt=[""] * len(edge_list),
+                    prompt=["satellite imagery, natural landscape, river, forest, terrain, true color RGB"] * len(edge_list),
                     image=edge_list,
                     num_inference_steps=args.inference_steps,
                     guidance_scale=1.0,
                     output_type="pt" # returns (B, 3, H, W) float in [0, 1]
                 )
-                fake_rgb = result.images.to(device)
+                fake_rgb = result.images.to(device).float()   # cast fp16 → fp32 for metrics
             elif use_spade:
                 fake_rgb = color_model(tir_input, mask_input)
 
@@ -285,5 +285,5 @@ if __name__ == "__main__":
     parser.add_argument("--two_stage",      action="store_true",
                         help="Simulate full two-stage: bicubic-down TIR → SwinIR → colorize")
 
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
     evaluate(args)

@@ -128,6 +128,13 @@ def process_image(color_model, sr_model, img, patch_size, upsample_factor,
     img_norm = 2.0 * ((img_pad - i_min) / max(i_max - i_min, 1e-5)) - 1.0
 
     stride = patch_size
+    
+    # ── FIX: Compute global mask once for the entire image ──
+    # This prevents K-Means from scrambling cluster labels on a per-patch basis.
+    if use_spade and sr_model is None:
+        # If running SPADE directly on the image (like in Stage 2)
+        full_mask_t = _make_mask_onehot(img_norm, n_clusters=N_CLUSTERS, device=device)
+    
     with torch.no_grad():
         for y in range(0, ph, stride):
             for x in range(0, pw, stride):
@@ -138,8 +145,14 @@ def process_image(color_model, sr_model, img, patch_size, upsample_factor,
                     patch_t = sr_model(patch_t)   # (1,1,H*2,W*2) in [-1,1]
 
                 if use_spade:
-                    mask_t = _make_mask_onehot(patch_t.squeeze(0).cpu().numpy(),
-                                               n_clusters=N_CLUSTERS, device=device)
+                    if sr_model is not None:
+                        # Fallback if both SR and SPADE are run in the same pass (not recommended anymore)
+                        mask_t = _make_mask_onehot(patch_t.squeeze(0).cpu().numpy(),
+                                                   n_clusters=N_CLUSTERS, device=device)
+                    else:
+                        # Use the globally consistent mask!
+                        mask_t = full_mask_t[:, :, y:y + patch_size, x:x + patch_size]
+                        
                     out_p = color_model(patch_t, mask_t)  # (1,3,H,W) in [-1,1]
                 else:
                     out_p = color_model(patch_t)           # (1,3,H,W) in [-1,1]
