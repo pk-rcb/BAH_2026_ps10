@@ -70,7 +70,7 @@ If you want to review the code or run the pipeline, here is a quick map of the r
 To run the data fetching scripts yourself, you must rename `.env.example` to `.env` and insert your own Google Earth Engine Project ID.
 
 ### Sample Data
-Because the full raw dataset is nearly **6 GB**, we have included a single city (`Zokhawthar`) in the `sample_dataset/` folder so you can immediately see the structure of the `tir` and `rgb` numpy arrays. The full 6 GB dataset is ignored by Git to adhere to GitHub's storage limits, but is available upon request (or generated dynamically using the `fetch_cities.py` script!).
+Because the full raw dataset is nearly **6 GB**, we have only included two sample cities (`Zokhawthar` and `Kapilavastu`) in the `input/` and `output/` directories so you can immediately see the structure of the `tir` and `rgb` numpy arrays. The rest of the 6 GB dataset is safely backed up locally to adhere to GitHub's storage limits, but is available upon request (or can be generated dynamically using the `fetch_cities.py` script!).
 
 ---
 *No hardcoded API keys or credentials exist in this repository. Ensure you have installed the required libraries (`torch`, `diffusers`, `tifffile`, `opencv-python`) before running the pipeline.*
