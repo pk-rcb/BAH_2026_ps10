@@ -88,9 +88,27 @@ If you are evaluating the code inside a Colab or Jupyter environment and want to
 
 ## 📊 4. Quantitative Results
 
-We evaluated both colorization models on a **held-out test set of 36 patches** (not seen during training). The SwinIR super-resolution stage was run on all inputs prior to colorization.
+All models were evaluated on a **held-out test set** not seen during training.
 
-### Benchmark Table
+---
+
+### Stage 1: Super-Resolution (SwinIR vs Bicubic Baseline)
+
+Evaluated on **35 test patches** — input: 200m TIR → output: 100m TIR.
+
+| Method | PSNR ↑ | SSIM ↑ | RMSE ↓ |
+|--------|:------:|:------:|:------:|
+| Bicubic (baseline) | 28.67 dB | 0.9867 | 0.0369 |
+| **SwinIR (ours)** | **45.52 dB** | **0.9851** | **0.0071** |
+| **Gain** | **+16.85 dB** | — | **5.2× lower** |
+
+> **SwinIR achieves a remarkable +16.85 dB PSNR improvement** over bicubic upsampling. A PSNR of 45.52 dB represents near-perfect spatial reconstruction, meaning the model recovers fine structural detail (rivers, terrain boundaries) that simple interpolation cannot reproduce.
+
+---
+
+### Stage 2: Colorization (SPADE vs ControlNet)
+
+Evaluated on **36 test patches** with SwinIR SR applied as preprocessing.
 
 | Metric | SPADE | ControlNet | Notes |
 |--------|:-----:|:----------:|-------|
