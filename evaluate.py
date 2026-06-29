@@ -35,7 +35,7 @@ from torch.utils.data import DataLoader, random_split
 from torchvision.utils import save_image
 
 from dataset import TIRDataset, N_MASK_CLASSES
-from models import SwinIR, GlobalGenerator, SPADEGenerator
+from models import SwinIR, SPADEGenerator
 from metrics import calculate_psnr, calculate_ssim_metric, calculate_rmse
 import cv2
 
@@ -85,8 +85,8 @@ def get_edge_map(tir_img: np.ndarray) -> np.ndarray:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def evaluate(args):
-    use_spade = (args.model == 'spade')
     use_controlnet = (args.model == 'controlnet')
+    use_spade = (args.model == 'spade')
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\n{'='*60}")
@@ -146,10 +146,7 @@ def evaluate(args):
             out_channels=3, ngf=64
         )
     else:
-        color_model = load_model(
-            GlobalGenerator, args.color_weights, device,
-            in_channels=1, out_channels=3, ngf=64, n_blocks=9
-        )
+        raise ValueError("Invalid model selected")
 
     # ── 3. Output directories for FID ─────────────────────────────────────────
     real_dir = os.path.join(args.output_dir, "real_rgb")
@@ -202,8 +199,6 @@ def evaluate(args):
                 fake_rgb = result.images.to(device)
             elif use_spade:
                 fake_rgb = color_model(tir_input, mask_input)
-            else:
-                fake_rgb = color_model(tir_input)
 
             # ── Metrics ─────────────────────────────────────────────────────
             for i in range(fake_rgb.size(0)):
@@ -271,13 +266,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Evaluate the full SwinIR + colorization pipeline on the held-out test set."
     )
-    parser.add_argument("--model",          type=str, default="pix2pix",
-                        choices=["pix2pix", "spade", "controlnet"],
-                        help="Colorization model architecture (default: pix2pix)")
+    parser.add_argument("--model",          type=str, default="spade",
+                        choices=["spade", "controlnet"],
+                        help="Colorization model architecture (default: spade)")
     parser.add_argument("--patches_dir",    type=str, default="output/patches")
     parser.add_argument("--sr_weights",     type=str, default="weights/best_sr_model.pth")
-    parser.add_argument("--color_weights",  type=str, default="weights/best_pix2pix_color_model.pth",
-                        help="Path to SPADE/Pix2Pix weights")
+    parser.add_argument("--color_weights",  type=str, default="weights/best_spade_color_model.pth",
+                        help="Path to SPADE weights")
     parser.add_argument("--controlnet_dir", type=str, default="weights/controlnet_color",
                         help="Path to saved ControlNet adapter")
     parser.add_argument("--model_id",       type=str, default="runwayml/stable-diffusion-v1-5",

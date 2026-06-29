@@ -1,8 +1,7 @@
 """
 inference.py — Full pipeline inference: SwinIR SR → colorization → .tif output
 ================================================================================
-Supports two colorization backends:
-    --model pix2pix   GlobalGenerator   (original)
+Supports one colorization backend:
     --model spade     SPADEGenerator    (semantic-mask conditioned)
 
 OUTPUT CONTRACT:
@@ -13,10 +12,6 @@ OUTPUT CONTRACT:
   - Training data and evaluation metrics always use RGB.
 
 Usage:
-    # Pix2PixHD (original):
-    python inference.py --model pix2pix \\
-        --color_weights weights/best_pix2pix_color_model.pth
-
     # SPADE:
     python inference.py --model spade \\
         --color_weights weights/best_spade_color_model.pth
@@ -31,7 +26,7 @@ import torch
 import torch.nn.functional as F
 from sklearn.cluster import KMeans
 
-from models import SwinIR, GlobalGenerator, SPADEGenerator
+from models import SwinIR, SPADEGenerator
 from dataset import N_MASK_CLASSES
 from utils.file_utils import find_file
 
@@ -116,7 +111,7 @@ def process_image(color_model, sr_model, img, patch_size, upsample_factor,
     _, orig_h, orig_w = img.shape
     out_h = orig_h * upsample_factor
     out_w = orig_w * upsample_factor
-    out_c = 1 if sr_model is not None and not use_spade else 3
+    out_c = 3
 
     # Pad so spatial dims are multiples of patch_size
     pad_h = (patch_size - orig_h % patch_size) % patch_size
@@ -146,10 +141,8 @@ def process_image(color_model, sr_model, img, patch_size, upsample_factor,
                     mask_t = _make_mask_onehot(patch_t.squeeze(0).cpu().numpy(),
                                                n_clusters=N_CLUSTERS, device=device)
                     out_p = color_model(patch_t, mask_t)  # (1,3,H,W) in [-1,1]
-                elif isinstance(color_model, GlobalGenerator):
-                    out_p = color_model(patch_t)           # (1,3,H,W) in [-1,1]
                 else:
-                    out_p = patch_t                        # SR-only pass-through
+                    out_p = color_model(patch_t)           # (1,3,H,W) in [-1,1]
 
                 # Denormalise [-1,1] → [0,1]
                 out_np = ((out_p.squeeze(0).cpu().numpy() + 1.0) / 2.0).clip(0.0, 1.0)
@@ -168,7 +161,7 @@ def process_image(color_model, sr_model, img, patch_size, upsample_factor,
 
 def main(args):
     device    = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    use_spade = (args.model == 'spade')
+    use_spade = True
     print(f"Inference using device: {device} | model: {args.model.upper()}")
 
     # ── Load SwinIR ─────────────────────────────────────────────────────────
@@ -180,17 +173,10 @@ def main(args):
     )
 
     # ── Load colorization model ──────────────────────────────────────────────
-    if use_spade:
-        color_model = load_model(
-            SPADEGenerator, args.color_weights, device,
-            tir_channels=1, label_nc=N_MASK_CLASSES,
-            out_channels=3, ngf=64
-        )
-    else:
-        color_model = load_model(
-            GlobalGenerator, args.color_weights, device,
-            in_channels=1, out_channels=3, ngf=64, n_blocks=9
-        )
+    color_model = load_model(
+        SPADEGenerator, args.color_weights, device,
+        tir_channels=1, label_nc=N_MASK_CLASSES, out_channels=3, ngf=64
+    )
 
     # ── Output directories ───────────────────────────────────────────────────
     out_sr_dir    = os.path.join(args.output_dir, 'model_outputs', 'tir_superresolved_100m')
@@ -249,14 +235,14 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='SwinIR + Colorization inference pipeline')
-    parser.add_argument('--model',         type=str, default='pix2pix',
-                        choices=['pix2pix', 'spade'],
-                        help='Colorization model architecture (default: pix2pix)')
+    parser.add_argument('--model',         type=str, default='spade',
+                        choices=['spade'],
+                        help='Colorization model architecture (default: spade)')
     parser.add_argument('--input_dir',     type=str, default='output/downscaled_data',
                         help='Directory containing *_tir_200m.tif input files')
     parser.add_argument('--output_dir',    type=str, default='output')
     parser.add_argument('--sr_weights',    type=str, default='weights/best_sr_model.pth')
-    parser.add_argument('--color_weights', type=str, default='weights/best_pix2pix_color_model.pth',
+    parser.add_argument('--color_weights', type=str, default='weights/best_spade_color_model.pth',
                         help='Colorization weights path '
                              '(e.g. weights/best_spade_color_model.pth for SPADE)')
     args = parser.parse_args()

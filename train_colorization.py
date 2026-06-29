@@ -4,8 +4,7 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from dataset import TIRDataset, N_MASK_CLASSES
-from models import (GlobalGenerator, SPADEGenerator,
-                    MultiScaleDiscriminator, Pix2PixHDLoss)
+from models import (SPADEGenerator, MultiScaleDiscriminator, Pix2PixHDLoss)
 
 
 def train_color(args):
@@ -13,11 +12,10 @@ def train_color(args):
     print(f"Using device: {device}")
     print(f"Model: {args.model.upper()}")
 
-    use_spade = (args.model == 'spade')
+    use_spade = True
 
     # ── Dataset ──────────────────────────────────────────────────────────────
     # SPADE task='color' returns (tir, mask_onehot, rgb)
-    # Pix2Pix task='color' returns (tir, mask_onehot, rgb) — same, mask is ignored
     dataset = TIRDataset(
         patches_dir=args.patches_dir,
         task='color',
@@ -41,17 +39,12 @@ def train_color(args):
                               num_workers=args.num_workers, pin_memory=True)
 
     # ── Generator ─────────────────────────────────────────────────────────────
-    if use_spade:
-        generator = SPADEGenerator(
-            tir_channels=1,
-            label_nc=N_MASK_CLASSES,   # K=4
-            out_channels=3,
-            ngf=64
-        ).to(device)
-    else:
-        generator = GlobalGenerator(
-            in_channels=1, out_channels=3, ngf=64, n_blocks=9
-        ).to(device)
+    generator = SPADEGenerator(
+        tir_channels=1,
+        label_nc=N_MASK_CLASSES,   # K=4
+        out_channels=3,
+        ngf=64
+    ).to(device)
 
     # Discriminator: [TIR(1ch) | RGB(3ch)] = 4ch — same for both models
     discriminator = MultiScaleDiscriminator(
@@ -98,10 +91,7 @@ def train_color(args):
             targets = targets.to(device)   # (B, 3, H, W)  RGB in [-1,1]
 
             # ── Generator forward ──────────────────────────────────────────
-            if use_spade:
-                fake_imgs = generator(tir, mask)      # needs both TIR + mask
-            else:
-                fake_imgs = generator(tir)             # Pix2Pix: TIR only
+            fake_imgs = generator(tir, mask)      # needs both TIR + mask
 
             # ── Discriminator update ───────────────────────────────────────
             optimizer_D.zero_grad()
@@ -118,10 +108,7 @@ def train_color(args):
 
             # ── Generator update ───────────────────────────────────────────
             optimizer_G.zero_grad()
-            if use_spade:
-                fake_imgs = generator(tir, mask)
-            else:
-                fake_imgs = generator(tir)
+            fake_imgs = generator(tir, mask)
 
             fake_pair  = torch.cat([tir, fake_imgs], dim=1)
             real_pair  = torch.cat([tir, targets],   dim=1)
@@ -159,7 +146,7 @@ def train_color(args):
                 mask    = mask.to(device)
                 targets = targets.to(device)
 
-                fake_imgs  = generator(tir, mask) if use_spade else generator(tir)
+                fake_imgs  = generator(tir, mask)
                 fake_pair  = torch.cat([tir, fake_imgs], dim=1)
                 real_pair  = torch.cat([tir, targets],   dim=1)
                 fake_preds = discriminator(fake_pair)
@@ -180,10 +167,10 @@ def train_color(args):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Train Pix2PixHD or SPADE colorization model')
-    parser.add_argument('--model',       type=str,   default='pix2pix',
-                        choices=['pix2pix', 'spade'],
-                        help='Generator architecture: pix2pix (GlobalGenerator) or spade (SPADEGenerator)')
+    parser = argparse.ArgumentParser(description='Train SPADE colorization model')
+    parser.add_argument('--model',       type=str,   default='spade',
+                        choices=['spade'],
+                        help='Generator architecture: spade (SPADEGenerator)')
     parser.add_argument('--patches_dir', type=str,   default='output/patches')
     parser.add_argument('--save_dir',    type=str,   default='weights')
     parser.add_argument('--batch_size',  type=int,   default=4)

@@ -81,7 +81,7 @@ def visualize_test(args):
     axes[1].axis('off')
     
     axes[2].imshow(rgb_img_viz)
-    axes[2].set_title("Stage 2: Pix2PixHD Colorized RGB (100m)")
+    axes[2].set_title("Stage 2: SPADE Colorized RGB (100m)")
     axes[2].axis('off')
     
     plt.tight_layout()
