@@ -8,6 +8,14 @@ We tackle this challenge using a novel **Two-Stage Architecture**:
 
 ---
 
+## 🖼️ Pipeline Outputs & Results
+
+> Visual comparison of our pipeline outputs: **Raw TIR input → SwinIR Super-Resolution → SPADE RGB colorization → ControlNet RGB colorization** on real Indian city satellite tiles.
+
+![Outputs and Performance of the proposed solution — SwinIR SR (left), SPADE and ControlNet colorization (right)](image.png)
+
+---
+
 ## 🏗️ 1. Data Fetching & Preparation
 
 Our training pipeline relies on aligned historical Thermal (ST) and Optical (SR) bands.
